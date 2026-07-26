@@ -3,16 +3,38 @@ name: Publish to Modrinth
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег релиза, который нужно опубликовать на Modrinth"
+        required: true
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Определить тег релиза
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "RELEASE_TAG=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_TAG=${{ github.event.release.tag_name }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Получить данные релиза через API
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases/tags/$RELEASE_TAG" > release.json
+          NAME=$(jq -r '.name' release.json)
+          echo "VERSION_NAME=$NAME" >> "$GITHUB_ENV"
+          jq -r '.body' release.json > changelog.txt
+
       - name: Скачать .mrpack из релиза
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download "${{ github.event.release.tag_name }}" \
+          gh release download "$RELEASE_TAG" \
             --repo "${{ github.repository }}" \
             --pattern "*.mrpack" \
             --dir .
@@ -29,25 +51,14 @@ jobs:
           echo "MC_VERSION=$MC_VERSION" >> "$GITHUB_ENV"
           echo "LOADER=$LOADER" >> "$GITHUB_ENV"
 
-      - name: Собрать данные релиза
-        run: |
-          echo "VERSION_NUMBER=${{ github.event.release.tag_name }}" >> "$GITHUB_ENV"
-          echo "VERSION_NAME=${{ github.event.release.name }}" >> "$GITHUB_ENV"
-
-      - name: Сохранить changelog в файл
-        env:
-          BODY: ${{ github.event.release.body }}
-        run: |
-          printf '%s' "$BODY" > changelog.txt
-
       - name: Сформировать JSON для Modrinth API
         env:
-          MODRINTH_PROJECT_ID: "ea2V0WBF"
+          MODRINTH_PROJECT_ID: "ВАШ_PROJECT_ID_ИЛИ_SLUG"
         run: |
           CHANGELOG=$(cat changelog.txt)
           jq -n \
             --arg name "$VERSION_NAME" \
-            --arg version_number "$VERSION_NUMBER" \
+            --arg version_number "$RELEASE_TAG" \
             --arg changelog "$CHANGELOG" \
             --arg project_id "$MODRINTH_PROJECT_ID" \
             --arg mc "$MC_VERSION" \
