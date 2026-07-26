@@ -53,7 +53,7 @@ jobs:
 
       - name: Сформировать JSON для Modrinth API
         env:
-          MODRINTH_PROJECT_ID: "ВАШ_PROJECT_ID_ИЛИ_SLUG"
+          MODRINTH_PROJECT_ID: "ea2V0WBF"
         run: |
           CHANGELOG=$(cat changelog.txt)
           jq -n \
