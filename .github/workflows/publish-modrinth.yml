@@ -1,0 +1,78 @@
+name: Publish to Modrinth
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Скачать .mrpack из релиза
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "*.mrpack" \
+            --dir .
+          MRPACK_FILE=$(ls *.mrpack | head -n1)
+          echo "Найден файл: $MRPACK_FILE"
+          echo "MRPACK_FILE=$MRPACK_FILE" >> "$GITHUB_ENV"
+
+      - name: Определить версию Minecraft и загрузчик из mrpack
+        run: |
+          unzip -p "$MRPACK_FILE" modrinth.index.json > index.json
+          MC_VERSION=$(jq -r '.dependencies.minecraft' index.json)
+          LOADER=$(jq -r '.dependencies | keys[] | select(endswith("-loader"))' index.json | sed 's/-loader$//' | head -n1)
+          echo "Minecraft: $MC_VERSION, Loader: $LOADER"
+          echo "MC_VERSION=$MC_VERSION" >> "$GITHUB_ENV"
+          echo "LOADER=$LOADER" >> "$GITHUB_ENV"
+
+      - name: Собрать данные релиза
+        run: |
+          echo "VERSION_NUMBER=${{ github.event.release.tag_name }}" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=${{ github.event.release.name }}" >> "$GITHUB_ENV"
+
+      - name: Сохранить changelog в файл
+        env:
+          BODY: ${{ github.event.release.body }}
+        run: |
+          printf '%s' "$BODY" > changelog.txt
+
+      - name: Сформировать JSON для Modrinth API
+        env:
+          MODRINTH_PROJECT_ID: "ea2V0WBF"
+        run: |
+          CHANGELOG=$(cat changelog.txt)
+          jq -n \
+            --arg name "$VERSION_NAME" \
+            --arg version_number "$VERSION_NUMBER" \
+            --arg changelog "$CHANGELOG" \
+            --arg project_id "$MODRINTH_PROJECT_ID" \
+            --arg mc "$MC_VERSION" \
+            --arg loader "$LOADER" \
+            '{
+              name: $name,
+              version_number: $version_number,
+              changelog: $changelog,
+              dependencies: [],
+              game_versions: [$mc],
+              version_type: "release",
+              loaders: [$loader],
+              featured: false,
+              status: "listed",
+              requested_status: "listed",
+              project_id: $project_id,
+              file_parts: ["file"],
+              primary_file: "file"
+            }' > data.json
+
+      - name: Опубликовать версию на Modrinth
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: |
+          curl -sS -f -X POST "https://api.modrinth.com/v2/version" \
+            -H "Authorization: $MODRINTH_TOKEN" \
+            -F "data=@data.json;type=application/json" \
+            -F "file=@${MRPACK_FILE};type=application/x-modrinth-modpack+zip"
