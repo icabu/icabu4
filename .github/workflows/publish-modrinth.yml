@@ -72,7 +72,16 @@ jobs:
         env:
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
         run: |
-          curl -sS -f -X POST "https://api.modrinth.com/v2/version" \
+          HTTP_CODE=$(curl -sS -w "%{http_code}" -o response.json -X POST "https://api.modrinth.com/v2/version" \
             -H "Authorization: $MODRINTH_TOKEN" \
             -F "data=@data.json;type=application/json" \
-            -F "file=@${MRPACK_FILE};type=application/x-modrinth-modpack+zip"
+            -F "file=@${MRPACK_FILE};type=application/x-modrinth-modpack+zip")
+
+          echo "HTTP статус: $HTTP_CODE"
+          echo "Ответ Modrinth:"
+          cat response.json
+
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::Modrinth API вернул ошибку $HTTP_CODE"
+            exit 1
+          fi
